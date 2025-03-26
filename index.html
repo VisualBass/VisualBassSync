@@ -205,8 +205,14 @@
           sum += frequencyData[i];
         }
         const avgAmplitude = sum / (highBin - lowBin + 1);
-        let brightness = ((avgAmplitude / 255) * BRIGHTNESS_GAIN * CONTROL_SENSITIVITY) + BRIGHTNESS_OFFSET;
-        brightness = Math.min(brightness, 1.0);
+        let brightness = (avgAmplitude / 255) * BRIGHTNESS_GAIN * CONTROL_SENSITIVITY;
+// Optional: set a small floor to avoid flickering completely off
+        const MIN_BRIGHTNESS = 0.05;
+        brightness = Math.max(MIN_BRIGHTNESS, Math.min(brightness, 1.0));
+
+// Exponential smoothing
+        smoothedBrightness = 0.8 * smoothedBrightness + 0.2 * brightness;
+
         smoothedBrightness = 0.8 * smoothedBrightness + 0.2 * brightness;
         const brightnessPercent = Math.floor(smoothedBrightness * 100);
         brightnessDisplay.textContent = `Brightness: ${brightnessPercent}%`;
