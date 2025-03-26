@@ -61,10 +61,10 @@
     const LOW_BASS_FREQ = 25;
     const HIGH_BASS_FREQ = 55;
     const FFT_SIZE = 4096;
-    const SMOOTHING_FACTOR = 0.4;
-    const BRIGHTNESS_GAIN = 0.8;
+    const SMOOTHING_FACTOR = 0.2;
+    const BRIGHTNESS_GAIN = 0.6;
     const CONTROL_SENSITIVITY = 1.0;
-    const BRIGHTNESS_OFFSET = 0.5;
+    const BRIGHTNESS_OFFSET = 0.4;
     const HUE_CYCLE_RATE = 0.009;
     const ORB_AMOUNT = 50;
     const SHAKE_INTENSITY = 1.5;
@@ -207,7 +207,7 @@
         const avgAmplitude = sum / (highBin - lowBin + 1);
         let brightness = ((avgAmplitude / 255) * BRIGHTNESS_GAIN * CONTROL_SENSITIVITY) + BRIGHTNESS_OFFSET;
         brightness = Math.min(brightness, 1.0);
-        smoothedBrightness = (smoothedBrightness * SMOOTHING_FACTOR) + (brightness * (1 - SMOOTHING_FACTOR));
+        smoothedBrightness = 0.8 * smoothedBrightness + 0.2 * brightness;
         const brightnessPercent = Math.floor(smoothedBrightness * 100);
         brightnessDisplay.textContent = `Brightness: ${brightnessPercent}%`;
         brightnessDisplay.style.color = `hsl(${hue * 360}, 100%, 50%)`;
