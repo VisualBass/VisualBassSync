@@ -22,10 +22,10 @@ logging.basicConfig(level=logging.INFO)
 # -----------------------------
 # LIFX Constants and Setup
 # -----------------------------
-#LIFX_IP = ""  # IP address of your LIFX light
-#LIFX_MAC = ""  # MAC address of your LIFX light
-#lifx = LifxLAN()
-#bulb = None
+LIFX_IP = ""  # IP address of your LIFX light
+LIFX_MAC = ""  # MAC address of your LIFX light
+lifx = LifxLAN()
+bulb = None
 #bulb = Light(LIFX_MAC, LIFX_IP)  # Use the specific IP and MAC to control the light
 
 # -----------------------------
