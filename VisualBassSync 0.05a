@@ -15,12 +15,17 @@ from lifxlan import LifxLAN, Light, WorkflowException
 logging.basicConfig(level=logging.INFO)
 
 # -----------------------------
+Version 0.05a
+# -----------------------------
+
+# -----------------------------
 # LIFX Constants and Setup
 # -----------------------------
-LIFX_IP = "192.168.1.2"  # Set your LIFX IP address here
-LIFX_MAC = "D0:73:D5:2C:F7:7E"  # Set your LIFX MAC address here
+LIFX_IP = ""  # IP address of your LIFX light
+LIFX_MAC = ""  # MAC address of your LIFX light
 lifx = LifxLAN()
-bulb = Light(LIFX_MAC, LIFX_IP)
+bulb = None
+#bulb = Light(LIFX_MAC, LIFX_IP)  # Use the specific IP and MAC to control the light
 
 # -----------------------------
 # CONSTANTS for Audio Processing
@@ -84,7 +89,7 @@ audio_queue = Queue(maxsize=16)
 last_update_time = time.time()
 last_packet_time = time.time()
 UPDATE_INTERVAL = 1.0 / 240.0
-PACKET_SEND_INTERVAL = 0.0111
+PACKET_SEND_INTERVAL = 0.009
 
 # Cube & Polygon Constants
 cube_vertices = []  # To be initialized later
@@ -283,6 +288,11 @@ def process_audio_queue(dt):
 # Corrected LIFX Color Sending Function
 # -----------------------------
 def send_lifx_color(glow, hue, retries=3):
+    # If no light is available, skip sending color.
+    if bulb is None:
+        logging.warning("No LIFX bulb available; skipping color update.")
+        return
+
     brightness = max(int(glow * control_sensitivity * 65535), int(control_brightness_floor * 65535))
     lifx_hue = int(hue * 65535) % 65535
     saturation = 65535
@@ -669,165 +679,225 @@ def draw_waveform_mode():
 # -----------------------------
 # Constants for Radial dB Meters
 # -----------------------------
-DIAMOND_POWER = 80          # Multiplier for diamond separation
-DIAMOND_SIZE = 35           # Half-width/height of the diamond triangles
-DRAW_SMALL_TRIANGLES = True  # Draw the original small triangles if desired
+DIAMOND_POWER = 80
+DIAMOND_SIZE = 35
+DRAW_SMALL_TRIANGLES = True
 TRIANGLE_1_DISTANCE = 55
 TRIANGLE_1_SIZE = 25
-NUM_SIDES = 30              # For drawing circle outlines
+NUM_SIDES = 30
 BOUNCE_INTENSITY = 10
 INNER_CIRCLE_RADIUS = 180
 OUTLINE_THICKNESS = 4
-ANGLE_INCREMENT = 12        # degrees between each radial bar
+ANGLE_INCREMENT = 12
 
-# New constants for the second smaller triangle:
 DRAW_SECOND_SMALL_TRIANGLE = True
-SECOND_SMALL_TRIANGLE_SIZE = 15    # Half-size of the second small triangle
-SECOND_SMALL_TRIANGLE_OFFSET = 120    # Vertical offset from center for the second small triangle
+SECOND_SMALL_TRIANGLE_SIZE = 15
+SECOND_SMALL_TRIANGLE_OFFSET = 120
 
-# Define the window size
-window_width = 800  # Example width
-window_height = 600  # Example height
+window_width = 800
+window_height = 600
+
+BASE_CIRCLE_RADIUS = 120
+BASE_BAR_EXTENSION = 150
+
 
 # -----------------------------
-# Pygame version of draw_separated_diamond
+# Updated draw_separated_diamond (with 45° rotation, mirrored triangles, and inward-facing second triangles)
 # -----------------------------
 def draw_separated_diamond(center_x, center_y, glow_value):
-    # Compute separation based on glow value and a constant multiplier.
-    separation = glow_value * DIAMOND_POWER
-    # Calculate diamond color using manual_hue_value, control_sensitivity and control_brightness_floor.
-    r, g, b = colorsys.hsv_to_rgb(manual_hue_value, 1, max(glow_value * control_sensitivity, control_brightness_floor))
+    # Use current screen dimensions for uniform scaling.
+    glow_value = float(glow_value)
+    current_width = screen.get_width()
+    current_height = screen.get_height()
+    scale = min(current_width / BASE_WIDTH, current_height / BASE_HEIGHT)
+
+    # Compute scaled dimensions.
+    separation = glow_value * DIAMOND_POWER * scale
+    diamond_size = DIAMOND_SIZE * scale
+    triangle1_size = TRIANGLE_1_SIZE * scale
+    triangle1_distance = TRIANGLE_1_DISTANCE * scale
+    second_triangle_size = SECOND_SMALL_TRIANGLE_SIZE * scale
+    second_triangle_offset = SECOND_SMALL_TRIANGLE_OFFSET * scale
+
+    # Use hue_value for color (global hue), brightness from glow_value.
+    brightness = max(glow_value * control_sensitivity, control_brightness_floor)
+    r, g, b = colorsys.hsv_to_rgb(hue_value, 1, brightness)
     diamond_color = (int(r * 255), int(g * 255), int(b * 255))
+
+    # Setup 45° rotation.
     rotation_angle = math.radians(45)
-    cos_angle = math.cos(rotation_angle)
-    sin_angle = math.sin(rotation_angle)
+    cos_angle, sin_angle = math.cos(rotation_angle), math.sin(rotation_angle)
 
     def rotate_point(x, y, cx, cy):
-        # Rotate (x, y) about center (cx, cy) by 45°.
-        x, y, cx, cy = float(x), float(y), float(cx), float(cy)
         x -= cx
         y -= cy
-        new_x = x * cos_angle - y * sin_angle
-        new_y = x * sin_angle + y * cos_angle
-        return new_x + cx, new_y + cy
+        return x * cos_angle - y * sin_angle + cx, x * sin_angle + y * cos_angle + cy
 
-    # Define the four main triangles of the diamond.
-    triangle_vertices = [
+    # Main diamond triangles (4)
+    main_triangles = [
         [(center_x, center_y + separation),
-         (center_x - DIAMOND_SIZE, center_y + DIAMOND_SIZE + separation),
-         (center_x + DIAMOND_SIZE, center_y + DIAMOND_SIZE + separation)],
+         (center_x - diamond_size, center_y + diamond_size + separation),
+         (center_x + diamond_size, center_y + diamond_size + separation)],
         [(center_x + separation, center_y),
-         (center_x + DIAMOND_SIZE + separation, center_y + DIAMOND_SIZE),
-         (center_x + DIAMOND_SIZE + separation, center_y - DIAMOND_SIZE)],
+         (center_x + diamond_size + separation, center_y + diamond_size),
+         (center_x + diamond_size + separation, center_y - diamond_size)],
         [(center_x, center_y - separation),
-         (center_x - DIAMOND_SIZE, center_y - DIAMOND_SIZE - separation),
-         (center_x + DIAMOND_SIZE, center_y - DIAMOND_SIZE - separation)],
+         (center_x - diamond_size, center_y - diamond_size - separation),
+         (center_x + diamond_size, center_y - diamond_size - separation)],
         [(center_x - separation, center_y),
-         (center_x - DIAMOND_SIZE - separation, center_y + DIAMOND_SIZE),
-         (center_x - DIAMOND_SIZE - separation, center_y - DIAMOND_SIZE)]
+         (center_x - diamond_size - separation, center_y + diamond_size),
+         (center_x - diamond_size - separation, center_y - diamond_size)]
     ]
-    for triangle in triangle_vertices:
-        rotated_triangle = [rotate_point(pt[0], pt[1], center_x, center_y) for pt in triangle]
+    for triangle in main_triangles:
+        rotated_triangle = [rotate_point(x, y, center_x, center_y) for x, y in triangle]
         pygame.draw.polygon(screen, diamond_color, rotated_triangle)
 
-    # Optionally draw the original small triangles.
+    # Small triangles (4, one for each main triangle)
     if DRAW_SMALL_TRIANGLES:
-        small_triangle_1_vertices = [
-            [(center_x, center_y + separation + TRIANGLE_1_DISTANCE),
-             (center_x - TRIANGLE_1_SIZE, center_y + TRIANGLE_1_SIZE + separation + TRIANGLE_1_DISTANCE),
-             (center_x + TRIANGLE_1_SIZE, center_y + TRIANGLE_1_SIZE + separation + TRIANGLE_1_DISTANCE)],
-            [(center_x + separation + TRIANGLE_1_DISTANCE, center_y),
-             (center_x + TRIANGLE_1_SIZE + separation + TRIANGLE_1_DISTANCE, center_y + TRIANGLE_1_SIZE),
-             (center_x + TRIANGLE_1_SIZE + separation + TRIANGLE_1_DISTANCE, center_y - TRIANGLE_1_SIZE)],
-            [(center_x, center_y - separation - TRIANGLE_1_DISTANCE),
-             (center_x - TRIANGLE_1_SIZE, center_y - TRIANGLE_1_SIZE - separation - TRIANGLE_1_DISTANCE),
-             (center_x + TRIANGLE_1_SIZE, center_y - TRIANGLE_1_SIZE - separation - TRIANGLE_1_DISTANCE)],
-            [(center_x - separation - TRIANGLE_1_DISTANCE, center_y),
-             (center_x - TRIANGLE_1_SIZE - separation - TRIANGLE_1_DISTANCE, center_y + TRIANGLE_1_SIZE),
-             (center_x - TRIANGLE_1_SIZE - separation - TRIANGLE_1_DISTANCE, center_y - TRIANGLE_1_SIZE)]
+        small_triangles = [
+            [(center_x, center_y + separation + triangle1_distance),
+             (center_x - triangle1_size, center_y + triangle1_size + separation + triangle1_distance),
+             (center_x + triangle1_size, center_y + triangle1_size + separation + triangle1_distance)],
+            [(center_x + separation + triangle1_distance, center_y),
+             (center_x + triangle1_size + separation + triangle1_distance, center_y + triangle1_size),
+             (center_x + triangle1_size + separation + triangle1_distance, center_y - triangle1_size)],
+            [(center_x, center_y - separation - triangle1_distance),
+             (center_x - triangle1_size, center_y - triangle1_size - separation - triangle1_distance),
+             (center_x + triangle1_size, center_y - triangle1_size - separation - triangle1_distance)],
+            [(center_x - separation - triangle1_distance, center_y),
+             (center_x - triangle1_size - separation - triangle1_distance, center_y + triangle1_size),
+             (center_x - triangle1_size - separation - triangle1_distance, center_y - triangle1_size)]
         ]
-        for small_triangle in small_triangle_1_vertices:
-            rotated_small_triangle = [rotate_point(pt[0], pt[1], center_x, center_y) for pt in small_triangle]
+        for small_triangle in small_triangles:
+            rotated_small_triangle = [rotate_point(x, y, center_x, center_y) for x, y in small_triangle]
             pygame.draw.polygon(screen, diamond_color, rotated_small_triangle)
 
-    # NEW: Draw the second, smaller triangle following the same rotation logic.
+    # Second small triangles (4) that face inward.
     if DRAW_SECOND_SMALL_TRIANGLE:
-        # Compute the apex of the second triangle.
-        # For example, we can position its apex above the center:
-        apex = (center_x, center_y - separation - SECOND_SMALL_TRIANGLE_OFFSET)
-        # The base vertices will be offset horizontally by SECOND_SMALL_TRIANGLE_SIZE
-        base_left = (center_x - SECOND_SMALL_TRIANGLE_SIZE, center_y - separation - SECOND_SMALL_TRIANGLE_OFFSET + SECOND_SMALL_TRIANGLE_SIZE)
-        base_right = (center_x + SECOND_SMALL_TRIANGLE_SIZE, center_y - separation - SECOND_SMALL_TRIANGLE_OFFSET + SECOND_SMALL_TRIANGLE_SIZE)
-        second_triangle_vertices = [apex, base_left, base_right]
-        # Optionally rotate these vertices around the center for consistency.
-        rotated_second_triangle = [rotate_point(pt[0], pt[1], center_x, center_y) for pt in second_triangle_vertices]
-        pygame.draw.polygon(screen, diamond_color, rotated_second_triangle)
+        # Define apex positions as before.
+        second_triangle_apexes = [
+            (center_x, center_y + separation + second_triangle_offset),
+            (center_x + separation + second_triangle_offset, center_y),
+            (center_x, center_y - separation - second_triangle_offset),
+            (center_x - separation - second_triangle_offset, center_y)
+        ]
+        # For each apex, compute a triangle that points inward.
+        for apex in second_triangle_apexes:
+            # Compute vector from apex to center.
+            vx = center_x - apex[0]
+            vy = center_y - apex[1]
+            length = math.hypot(vx, vy)
+            if length == 0:
+                ux, uy = 0, 0
+            else:
+                ux, uy = vx / length, vy / length
+            # Set the triangle's height and base width.
+            height = second_triangle_size      # distance from apex to base center
+            base_width = second_triangle_size * 2  # width of the base
+            # The triangle should point inward; use the unit vector (ux,uy) that points from apex to center.
+            base_center = (apex[0] - ux * height, apex[1] - uy * height)
+            # Perpendicular vector.
+            perp = (-uy, ux)
+            base_left = (base_center[0] + (base_width / 2) * perp[0], base_center[1] + (base_width / 2) * perp[1])
+            base_right = (base_center[0] - (base_width / 2) * perp[0], base_center[1] - (base_width / 2) * perp[1])
+            second_triangle_vertices = [apex, base_left, base_right]
+            # Rotate the second triangle by 45° for consistency.
+            rotated_second_triangle = [rotate_point(x, y, center_x, center_y) for x, y in second_triangle_vertices]
+            pygame.draw.polygon(screen, diamond_color, rotated_second_triangle)
 
 
 # -----------------------------
-# Pygame version of draw_circle_outline
+# draw_circle_outline (Responsive)
 # -----------------------------
 def draw_circle_outline(center_x, center_y, radius, outline_thickness, outline_color):
+    current_width = screen.get_width()
+    current_height = screen.get_height()
+    scale = min(current_width / BASE_WIDTH, current_height / BASE_HEIGHT)
     points = []
-    angle_step = 2 * math.pi / NUM_SIDES
+    num_sides = max(int(NUM_SIDES * scale), 30)
+    angle_step = 2 * math.pi / num_sides
     radius = float(radius)
-    for i in range(NUM_SIDES):
+    for i in range(num_sides):
         angle = i * angle_step
         x = float(center_x) + radius * math.cos(angle)
         y = float(center_y) + radius * math.sin(angle)
         points.append((x, y))
-    pygame.draw.polygon(screen, outline_color, points, outline_thickness)
-
+    pygame.draw.polygon(screen, outline_color, points, int(outline_thickness))
 
 
 # -----------------------------
-# Pygame version of draw_radial_db_meters
+# Pygame version of draw_radial_db_meters (Updated, Responsive & 1:1 Scaled)
 # -----------------------------
 def draw_radial_db_meters():
-    global latest_audio_data, glow_value, manual_hue_value, control_sensitivity, control_brightness_floor
+    global latest_audio_data, glow_value, hue_value, control_sensitivity, control_brightness_floor
     try:
         if latest_audio_data is None or len(latest_audio_data) < 2:
             return
 
-        fft_data = np.abs(np.fft.fft(latest_audio_data))[:len(latest_audio_data) // 2]
-        num_bars = DEFAULT_NUM_BARS
-        bar_width = DEFAULT_BAR_WIDTH
-        max_bar_length = DEFAULT_MAX_BAR_LENGTH
-        base_radius = DEFAULT_RADIUS
+        # Get current screen dimensions & scale
+        current_width = screen.get_width()
+        current_height = screen.get_height()
+        scale = min(current_width / BASE_WIDTH, current_height / BASE_HEIGHT)
+
+        # FFT
+        fft_data = np.abs(np.fft.fft(latest_audio_data))[:len(latest_audio_data)//2]
         max_amplitude = np.max(fft_data) if np.max(fft_data) != 0 else 1
+
+        num_bars = DEFAULT_NUM_BARS
+        bar_width = int(DEFAULT_BAR_WIDTH * scale)
         bar_amplitudes = [amp / max_amplitude for amp in fft_data[:num_bars]]
 
-        r, g, b = colorsys.hsv_to_rgb(manual_hue_value, 1, max(glow_value * control_sensitivity, control_brightness_floor))
+        # Compute color from hue_value & brightness
+        brightness = max(glow_value * control_sensitivity, control_brightness_floor)
+        r, g, b = colorsys.hsv_to_rgb(hue_value, 1, brightness)
         color = (int(r * 255), int(g * 255), int(b * 255))
 
-        dynamic_radius = float(base_radius + glow_value * BOUNCE_INTENSITY)
-        dynamic_bar_length = float(max_bar_length + glow_value * BOUNCE_INTENSITY)
+        # Distinct radius for the circle where bars start
+        circle_radius = BASE_CIRCLE_RADIUS * scale
 
-        center_x = window_width // 2
-        center_y = window_height // 2
+        # Distinct extension for the bars
+        max_bar_extension = BASE_BAR_EXTENSION * scale
 
-        circle_radius = float(INNER_CIRCLE_RADIUS + glow_value * BOUNCE_INTENSITY)
-        or_r, or_g, or_b = colorsys.hsv_to_rgb(manual_hue_value, 1, max(glow_value * control_sensitivity, control_brightness_floor))
-        circle_outline_color = (int(or_r * 255), int(or_g * 255), int(or_b * 255))
-        draw_circle_outline(center_x, center_y, circle_radius, OUTLINE_THICKNESS, circle_outline_color)
+        # If you want bounce, add e.g. + (glow_value * BOUNCE_INTENSITY * scale)
+        # e.g. max_bar_extension += glow_value * BOUNCE_INTENSITY * scale
 
+        # Center of screen
+        center_x = current_width // 2
+        center_y = current_height // 2
+
+        # Draw an outline circle at circle_radius
+        outline_thickness = int(OUTLINE_THICKNESS * scale)
+        draw_circle_outline(center_x, center_y, circle_radius, outline_thickness, color)
+
+        # Draw each radial bar
         for i in range(num_bars):
             angle = math.radians(i * ANGLE_INCREMENT)
+
+            # Convert amplitude to dB if you want a threshold
             amplitude = bar_amplitudes[i] * max_amplitude
             db_value = 20 * np.log10(amplitude) if amplitude > 0 else -100
-            bar_length = bar_amplitudes[i] * dynamic_bar_length if db_value >= -50 else 0
 
-            start_x = int(center_x + dynamic_radius * math.cos(angle))
-            start_y = int(center_y + dynamic_radius * math.sin(angle))
-            end_x = int(start_x + bar_length * math.cos(angle))
-            end_y = int(start_y + bar_length * math.sin(angle))
+            # If dB above threshold => scale bar length
+            if db_value >= -50:
+                bar_length = bar_amplitudes[i] * max_bar_extension
+            else:
+                bar_length = 0
+
+            # Start from circle_radius
+            start_x = int(center_x + circle_radius * math.cos(angle))
+            start_y = int(center_y + circle_radius * math.sin(angle))
+
+            # Extend outward by bar_length
+            end_x = int(center_x + (circle_radius + bar_length) * math.cos(angle))
+            end_y = int(center_y + (circle_radius + bar_length) * math.sin(angle))
+
             pygame.draw.line(screen, color, (start_x, start_y), (end_x, end_y), bar_width)
 
+        # Finally, draw the diamond & triangles
         draw_separated_diamond(center_x, center_y, glow_value)
 
     except Exception as e:
         logging.error(f"Error in draw_radial_db_meters: {e}")
-
 
 
 
