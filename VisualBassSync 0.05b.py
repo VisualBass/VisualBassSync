@@ -22,11 +22,6 @@ logging.basicConfig(level=logging.INFO)
 # -----------------------------
 # LIFX Constants and Setup
 # -----------------------------
-LIFX_IP = "192.168.1.2"  # Set your LIFX IP address here
-LIFX_MAC = "D0:73:D5:2C:F7:7E"  # Set your LIFX MAC address here
-lifx = LifxLAN()
-bulb = Light(LIFX_MAC, LIFX_IP)
-
 #LIFX_IP = ""  # IP address of your LIFX light
 #LIFX_MAC = ""  # MAC address of your LIFX light
 #lifx = LifxLAN()
