@@ -14,17 +14,18 @@ from lifxlan import LifxLAN, Light, WorkflowException
 
 logging.basicConfig(level=logging.INFO)
 
+
 # -----------------------------
-Version 0.05a
+Version 0.05b
 # -----------------------------
 
 # -----------------------------
 # LIFX Constants and Setup
 # -----------------------------
-LIFX_IP = ""  # IP address of your LIFX light
-LIFX_MAC = ""  # MAC address of your LIFX light
-lifx = LifxLAN()
-bulb = None
+#LIFX_IP = ""  # IP address of your LIFX light
+#LIFX_MAC = ""  # MAC address of your LIFX light
+#lifx = LifxLAN()
+#bulb = None
 #bulb = Light(LIFX_MAC, LIFX_IP)  # Use the specific IP and MAC to control the light
 
 # -----------------------------
@@ -596,7 +597,9 @@ def init_orbs():
             y = np.random.uniform(0, WINDOW_HEIGHT)
         orbs.append(Orb((x, y), 5))
 
-
+# -----------------------------
+# Constants for Gravity & Orbs
+# -----------------------------
 def update_orbs():
     global orbs, base_color
     center_x = WINDOW_WIDTH / 2
@@ -633,6 +636,10 @@ def draw_orbs():
     for orb in orbs:
         orb.draw(screen)
 
+# -----------------------------
+# Constants for Waveform
+# -----------------------------
+WAVEFORM_HEIGHT_SCALE = 0.85  # Maximum fraction of half-screen height used for waveform amplitude
 
 def update_waveform_buffers():
     global waveform_buffers, control_waveform_points
@@ -644,10 +651,14 @@ def draw_waveform_mode():
     try:
         if latest_audio_data is None or len(latest_audio_data) < 2:
             return
+
+        # Get raw waveform data and downsample
         waveform_data = np.nan_to_num(latest_audio_data, nan=0.0)
         downsample_factor = max(1, len(waveform_data) // control_waveform_points)
         downsampled_waveform = waveform_data[::downsample_factor]
         downsampled_waveform = np.nan_to_num(downsampled_waveform, nan=0.0)
+
+        # Smooth the waveform using the waveform_buffers
         for i in range(len(downsampled_waveform)):
             if i < len(waveform_buffers):
                 if downsampled_waveform[i] > 0:
@@ -655,20 +666,29 @@ def draw_waveform_mode():
                 smoothed_val = np.mean(waveform_buffers[i])
                 downsampled_waveform[i] = (WAVEFORM_SMOOTHING_FACTOR * smoothed_val +
                                            (1 - WAVEFORM_SMOOTHING_FACTOR) * downsampled_waveform[i])
+
         amplitude_scale = 1.1
         r, g, b = colorsys.hsv_to_rgb((hue_value + 0.1) % 1.0, 1,
                                       max(glow_value * control_sensitivity * amplitude_scale,
                                           control_brightness_floor))
         base_color = (int(r * 255), int(g * 255), int(b * 255))
+
         num_points = len(downsampled_waveform)
         if num_points < 2:
             return
+
+        # Compute x positions evenly across the screen
         x_step = screen.get_width() / (num_points - 1)
         points = []
         for i in range(num_points):
             x = int(i * x_step)
-            y = int(screen.get_height() // 2 + downsampled_waveform[i] * screen.get_height() // 2 * control_sensitivity)
+            # Compute y position: center + scaled amplitude.
+            # The maximum displacement is limited by WAVEFORM_HEIGHT_SCALE.
+            y_raw = screen.get_height() // 2 + downsampled_waveform[i] * (
+                        screen.get_height() // 2) * WAVEFORM_HEIGHT_SCALE * control_sensitivity
+            y = int(max(0, min(y_raw, screen.get_height())))  # Clamp to screen
             points.append((x, y))
+
         height_factor = WINDOW_HEIGHT / BASE_HEIGHT
         line_width = int(min(1 + glow_value * 5, 6) * height_factor)
         for i in range(num_points - 1):
@@ -697,9 +717,9 @@ SECOND_SMALL_TRIANGLE_OFFSET = 120
 window_width = 800
 window_height = 600
 
-BASE_CIRCLE_RADIUS = 120
-BASE_BAR_EXTENSION = 150
-
+BASE_CIRCLE_RADIUS = 220
+BASE_BAR_EXTENSION = 240
+BAR_OFFSET = -25
 
 # -----------------------------
 # Updated draw_separated_diamond (with 45° rotation, mirrored triangles, and inward-facing second triangles)
@@ -826,7 +846,7 @@ def draw_circle_outline(center_x, center_y, radius, outline_thickness, outline_c
 
 
 # -----------------------------
-# Pygame version of draw_radial_db_meters (Updated, Responsive & 1:1 Scaled)
+# Pygame version of draw_radial_db_meters (Updated, Responsive, 1:1 Scaled with Bounce)
 # -----------------------------
 def draw_radial_db_meters():
     global latest_audio_data, glow_value, hue_value, control_sensitivity, control_brightness_floor
@@ -834,72 +854,58 @@ def draw_radial_db_meters():
         if latest_audio_data is None or len(latest_audio_data) < 2:
             return
 
-        # Get current screen dimensions & scale
         current_width = screen.get_width()
         current_height = screen.get_height()
         scale = min(current_width / BASE_WIDTH, current_height / BASE_HEIGHT)
 
-        # FFT
         fft_data = np.abs(np.fft.fft(latest_audio_data))[:len(latest_audio_data)//2]
-        max_amplitude = np.max(fft_data) if np.max(fft_data) != 0 else 1
-
         num_bars = DEFAULT_NUM_BARS
         bar_width = int(DEFAULT_BAR_WIDTH * scale)
+        max_amplitude = np.max(fft_data) if np.max(fft_data) != 0 else 1
         bar_amplitudes = [amp / max_amplitude for amp in fft_data[:num_bars]]
 
-        # Compute color from hue_value & brightness
         brightness = max(glow_value * control_sensitivity, control_brightness_floor)
         r, g, b = colorsys.hsv_to_rgb(hue_value, 1, brightness)
         color = (int(r * 255), int(g * 255), int(b * 255))
 
-        # Distinct radius for the circle where bars start
-        circle_radius = BASE_CIRCLE_RADIUS * scale
+        # The starting circle radius expands with glow_value (bounce effect)
+        circle_radius = (BASE_CIRCLE_RADIUS + glow_value * BOUNCE_INTENSITY) * scale
+        # The maximum extension of the bar (beyond the circle) also bounces
+        max_bar_extension = (BASE_BAR_EXTENSION + glow_value * BOUNCE_INTENSITY) * scale
 
-        # Distinct extension for the bars
-        max_bar_extension = BASE_BAR_EXTENSION * scale
-
-        # If you want bounce, add e.g. + (glow_value * BOUNCE_INTENSITY * scale)
-        # e.g. max_bar_extension += glow_value * BOUNCE_INTENSITY * scale
-
-        # Center of screen
         center_x = current_width // 2
         center_y = current_height // 2
 
-        # Draw an outline circle at circle_radius
         outline_thickness = int(OUTLINE_THICKNESS * scale)
+
+        # Draw the circle outline exactly at circle_radius
         draw_circle_outline(center_x, center_y, circle_radius, outline_thickness, color)
 
-        # Draw each radial bar
+        # Calculate the starting radius for bars with an offset to create spacing.
+        start_radius = circle_radius - (BAR_OFFSET * scale)
+
         for i in range(num_bars):
             angle = math.radians(i * ANGLE_INCREMENT)
-
-            # Convert amplitude to dB if you want a threshold
             amplitude = bar_amplitudes[i] * max_amplitude
             db_value = 20 * np.log10(amplitude) if amplitude > 0 else -100
-
-            # If dB above threshold => scale bar length
+            # Only extend bars if above threshold
             if db_value >= -50:
                 bar_length = bar_amplitudes[i] * max_bar_extension
             else:
                 bar_length = 0
 
-            # Start from circle_radius
-            start_x = int(center_x + circle_radius * math.cos(angle))
-            start_y = int(center_y + circle_radius * math.sin(angle))
-
-            # Extend outward by bar_length
-            end_x = int(center_x + (circle_radius + bar_length) * math.cos(angle))
-            end_y = int(center_y + (circle_radius + bar_length) * math.sin(angle))
-
+            # Start the bar at the offset radius
+            start_x = int(center_x + start_radius * math.cos(angle))
+            start_y = int(center_y + start_radius * math.sin(angle))
+            # End point extends outward from the start
+            end_x = int(center_x + (start_radius + bar_length) * math.cos(angle))
+            end_y = int(center_y + (start_radius + bar_length) * math.sin(angle))
             pygame.draw.line(screen, color, (start_x, start_y), (end_x, end_y), bar_width)
 
-        # Finally, draw the diamond & triangles
         draw_separated_diamond(center_x, center_y, glow_value)
 
     except Exception as e:
         logging.error(f"Error in draw_radial_db_meters: {e}")
-
-
 
 
 # -----------------------------
