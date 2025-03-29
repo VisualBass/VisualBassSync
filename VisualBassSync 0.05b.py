@@ -16,12 +16,17 @@ logging.basicConfig(level=logging.INFO)
 
 
 # -----------------------------
-Version 0.05b
+#Version 0.05b
 # -----------------------------
 
 # -----------------------------
 # LIFX Constants and Setup
 # -----------------------------
+LIFX_IP = "192.168.1.2"  # Set your LIFX IP address here
+LIFX_MAC = "D0:73:D5:2C:F7:7E"  # Set your LIFX MAC address here
+lifx = LifxLAN()
+bulb = Light(LIFX_MAC, LIFX_IP)
+
 #LIFX_IP = ""  # IP address of your LIFX light
 #LIFX_MAC = ""  # MAC address of your LIFX light
 #lifx = LifxLAN()
@@ -254,7 +259,7 @@ BRIGHTNESS_GAIN = 1.6  # Boost factor for brightness/glow calculation
 
 def process_audio_queue(dt):
     global waveform_data, latest_audio_data, glow_value, last_update_time, last_packet_time, hue_value
-    global current_gain_db, smoothing_buffer
+    global current_gain_db, smoothing_buffer, left_channel_amplitude, right_channel_amplitude
     try:
         while not audio_queue.empty():
             audio_data = audio_queue.get()
@@ -263,13 +268,24 @@ def process_audio_queue(dt):
 
             current_time = time.time()
 
-            # dB reading based on peak amplitude (for display)
-            peak_value = np.max(np.abs(audio_data))
+            # If stereo (more than one channel), compute separate amplitudes
+            if audio_data.ndim > 1 and audio_data.shape[1] >= 2:
+                left_channel_amplitude = np.max(np.abs(audio_data[:, 0]))
+                right_channel_amplitude = np.max(np.abs(audio_data[:, 1]))
+                # Combine channels by averaging for overall detection:
+                combined_audio = np.mean(audio_data, axis=1)
+            else:
+                combined_audio = audio_data
+                left_channel_amplitude = np.max(np.abs(audio_data))
+                right_channel_amplitude = np.max(np.abs(audio_data))
+
+            # dB reading based on peak amplitude from the combined signal
+            peak_value = np.max(np.abs(combined_audio))
             display_db = 20 * np.log10(peak_value) if peak_value > 0 else -100
             smooth_db_value(display_db)
 
-            # Brightness/glow from FFT-based detection
-            detection_value = detect_frequencies(audio_data, RATE, TARGET_FREQS)
+            # Brightness/glow computed from FFT-based detection on the combined signal
+            detection_value = detect_frequencies(combined_audio, RATE, TARGET_FREQS)
             smoothing_buffer.append(detection_value)
             smoothed_value = np.mean(smoothing_buffer) if smoothing_buffer else 0
             new_glow_value = min((smoothed_value * BRIGHTNESS_GAIN / 100) * control_sensitivity, 1.0)
